@@ -60,6 +60,8 @@ CONTROLLER_RULE_KEY = "rule"
 CONTROLLER_TRIGGERS_KEY = "triggers"
 CONTROLLER_OPERATIONS_KEY = OPERATIONS_KEY
 
+import random
+GLOBAL_RAND_ID = int(random.random()*1000000)
 
 # pylint: disable=too-many-instance-attributes
 class TrainerControllerCallback(TrainerCallback):
@@ -75,6 +77,9 @@ class TrainerControllerCallback(TrainerCallback):
         # Checks if the trainer control config is of string type, in which case, it \
         # is a file path for the configuration yaml. On the other hand, if it is a \
         # dictionary, then it the yaml directly passed as such.
+        self.instance_id = int(random.random()*1000000)
+        print('DEBUG TrainerControllerCallback.__init__ GLOBAL_RAND_ID', GLOBAL_RAND_ID, 'self.instance_id', self.instance_id)
+
         self.logging_level = logging_level
         if isinstance(trainer_controller_config, str):
             if os.path.exists(trainer_controller_config):
@@ -217,7 +222,9 @@ class TrainerControllerCallback(TrainerCallback):
             event_name: str. Event name.
             kwargs: List of arguments (key, value)-pairs.
         """
+        print('DEBUG TrainerControllerCallback._take_control_actions GLOBAL_RAND_ID', GLOBAL_RAND_ID, 'self.instance_id', self.instance_id)
         if event_name in self.control_actions_on_event:
+            print('if event_name in self.control_actions_on_event:')
             evaluator = get_evaluator(metrics=self.metrics)
             for control_action in self.control_actions_on_event[event_name]:
                 rule_succeeded = False
