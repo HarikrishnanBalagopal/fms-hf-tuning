@@ -229,19 +229,23 @@ class TrainerControllerCallback(TrainerCallback):
             event_name: str. Event name.
             kwargs: List of arguments (key, value)-pairs.
         """
-        assert "control" in kwargs
-        control: TrainerControl = kwargs["control"]
+        # assert "control" in kwargs
+        # control: TrainerControl = kwargs["control"]
+        assert "state" in kwargs
+        mystate: TrainerState = kwargs["state"]
         print(
             "DEBUG TrainerControllerCallback._take_control_actions GLOBAL_RAND_ID",
             GLOBAL_RAND_ID,
             "self.instance_id",
             self.instance_id,
-            "control",
-            control,
+            "mystate",
+            mystate,
+            # "control",
+            # control,
         )
-        if self.instance_id % 2 == 0:
-            print("DEBUG stopping training for the instance", self.instance_id)
-            control.should_training_stop = True
+        # if self.instance_id % 2 == 0:
+        #     print("DEBUG stopping training for the instance", self.instance_id)
+        #     control.should_training_stop = True
         if event_name in self.control_actions_on_event:
             print("if event_name in self.control_actions_on_event:")
             evaluator = get_evaluator(metrics=self.metrics)
