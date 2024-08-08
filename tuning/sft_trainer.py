@@ -73,9 +73,9 @@ from tuning.utils.preprocessing_utils import (
 
 
 def train(
-    model_args: configs.ModelArguments,
-    data_args: configs.DataArguments,
-    train_args: configs.TrainingArguments,
+    model_args: configs.ModelDataArguments,
+    data_args: configs.ModelDataArguments,
+    train_args: configs.ModelDataArguments,
     peft_config: Optional[  # pylint: disable=redefined-outer-name
         Union[peft_config.LoraConfig, peft_config.PromptTuningConfig]
     ] = None,
@@ -94,9 +94,9 @@ def train(
     """Call the SFTTrainer
 
     Args:
-        model_args: tuning.config.configs.ModelArguments
-        data_args: tuning.config.configs.DataArguments
-        train_args: tuning.config.configs.TrainingArguments
+        model_args: tuning.config.configs.ModelDataArguments
+        data_args: tuning.config.configs.ModelDataArguments
+        train_args: tuning.config.configs.ModelDataArguments
         peft_config: peft_config.LoraConfig for Lora tuning | \
         peft_config.PromptTuningConfig for prompt tuning | \
         None for fine tuning
@@ -228,6 +228,15 @@ def train(
         use_fast=True,
     )
 
+    if data_args.chat_template:
+        logger.info("adding chat_template to the tokenizer")
+        if tokenizer.chat_template:
+            logger.warning(
+                f"replacing existing chat_template {tokenizer.chat_template} \
+                with the given chat_template {data_args.chat_template}"
+            )
+        tokenizer.chat_template = data_args.chat_template
+
     # Calculate and save additional metrics to track later.
     additional_metrics["model_load_time"] = time.time() - model_load_time
 
@@ -259,6 +268,12 @@ def train(
                     "pad_token": "<pad>",
                 }
             )
+
+    # if the tokenizer still does not have a pad token
+    # which could be possible when passing custom tokenizer
+    # we will then set pad token to eos token
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     max_seq_length = min(train_args.max_seq_length, tokenizer.model_max_length)
     logger.info("Max sequence length is %s", max_seq_length)
@@ -315,7 +330,7 @@ def train(
         packing = False
 
     # Validate if data args are set properly
-    validate_data_args(data_args, packing)
+    validate_data_args(data_args, packing, tokenizer)
 
     (
         formatted_train_dataset,
@@ -328,6 +343,8 @@ def train(
         tokenizer,
         formatted_train_dataset,
         max_seq_length,
+        data_args.tokens_field,
+        data_args.instruction_template,
     )
 
     if framework is not None and framework.requires_agumentation:
@@ -336,7 +353,7 @@ def train(
         )
 
     # HACK - The SFT Trainer has internal validation which inspects the name of the class
-    # being used for the HF training args; if it's a TrainingArguments class, which is
+    # being used for the HF training args; if it's a ModelDataArguments class, which is
     # presumably from transformers, it tries to build it into an SFT Config.
     #
     # This is unfortunately a naming collision with one of our own classes, which has extra
@@ -351,12 +368,7 @@ def train(
         if k in transformer_train_arg_fields
     }
     training_args = SFTConfig(**transformer_kwargs)
-
-    dataset_kwargs = {}
-    if is_pretokenized_dataset(
-        data_args.training_data_path or data_args.validation_data_path
-    ):
-        dataset_kwargs["skip_prepare_dataset"] = True
+    logger.warning("dataset kwargs {}".format(data_args.dataset_kwargs))
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
@@ -369,7 +381,7 @@ def train(
         max_seq_length=max_seq_length,
         callbacks=trainer_callbacks,
         peft_config=peft_config,
-        dataset_kwargs=dataset_kwargs,
+        dataset_kwargs=data_args.dataset_kwargs,
     )
 
     # We track additional metrics and experiment metadata after trainer object creation
@@ -451,9 +463,7 @@ def get_parser():
     """Get the command-line argument parser."""
     parser = transformers.HfArgumentParser(
         dataclass_types=(
-            configs.ModelArguments,
-            configs.DataArguments,
-            configs.TrainingArguments,
+            configs.ModelDataArguments,
             configs.TrainerControllerArguments,
             peft_config.LoraConfig,
             peft_config.PromptTuningConfig,
@@ -490,12 +500,8 @@ def parse_arguments(parser, json_config=None):
             Dict of arguments to use with tuning.
 
     Returns:
-        ModelArguments
+        ModelDataArguments
             Arguments pertaining to which model we are going to tune.
-        DataArguments
-            Arguments pertaining to what data we are going to use for training and evaluation.
-        TrainingArguments
-            Configuration for training model.
         TrainerControllerArguments
             Configuration for custom trainer controller such as early stopping or dynamic scaling.
         PromptTuningConfig/LoraConfig/None
@@ -516,8 +522,6 @@ def parse_arguments(parser, json_config=None):
     if json_config:
         (
             model_args,
-            data_args,
-            training_args,
             trainer_controller_args,
             lora_config,
             prompt_tuning_config,
@@ -532,8 +536,6 @@ def parse_arguments(parser, json_config=None):
     else:
         (
             model_args,
-            data_args,
-            training_args,
             trainer_controller_args,
             lora_config,
             prompt_tuning_config,
@@ -558,8 +560,6 @@ def parse_arguments(parser, json_config=None):
 
     return (
         model_args,
-        data_args,
-        training_args,
         trainer_controller_args,
         tune_config,
         file_logger_config,
@@ -579,8 +579,6 @@ def main():
     try:
         (
             model_args,
-            data_args,
-            training_args,
             trainer_controller_args,
             tune_config,
             file_logger_config,
@@ -592,7 +590,7 @@ def main():
         ) = parse_arguments(parser, job_config)
 
         # Function to set log level for python native logger and transformers training logger
-        training_args, logger = set_log_level(training_args, __name__)
+        model_args, logger = set_log_level(model_args, __name__)
 
         logger.debug(
             "Input args parsed: \
@@ -601,8 +599,8 @@ def main():
             quantized_lora_config %s, fusedops_kernels_config %s, \
             attention_and_distributed_packing_config %s exp_metadata %s",
             model_args,
-            data_args,
-            training_args,
+            model_args,
+            model_args,
             trainer_controller_args,
             tune_config,
             file_logger_config,
@@ -642,8 +640,8 @@ def main():
     try:
         trainer = train(
             model_args=model_args,
-            data_args=data_args,
-            train_args=training_args,
+            data_args=model_args,
+            train_args=model_args,
             peft_config=tune_config,
             trainer_controller_args=trainer_controller_args,
             tracker_configs=combined_tracker_configs,
@@ -679,17 +677,17 @@ def main():
         sys.exit(INTERNAL_ERROR_EXIT_CODE)
 
     # save model
-    if training_args.save_model_dir:
+    if model_args.save_model_dir:
         try:
             save(
-                path=training_args.save_model_dir,
+                path=model_args.save_model_dir,
                 trainer=trainer,
-                log_level=training_args.log_level,
+                log_level=model_args.log_level,
             )
         except Exception as e:  # pylint: disable=broad-except
             logger.error(traceback.format_exc())
             write_termination_log(
-                f"Failed to save model to {training_args.save_model_dir}: {e}"
+                f"Failed to save model to {model_args.save_model_dir}: {e}"
             )
             sys.exit(INTERNAL_ERROR_EXIT_CODE)
 
