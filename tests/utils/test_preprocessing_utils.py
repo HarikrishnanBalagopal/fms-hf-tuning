@@ -234,7 +234,7 @@ def test_is_pretokenized_data(data, result):
         # dataset_text_field with no response_template
         (
             configs.ModelDataArguments(
-                training_data_path=TWITTER_COMPLAINTS_DATA,
+                training_data_path=TWITTER_COMPLAINTS_DATA_JSONL,
                 dataset_text_field="output",
                 output_dir="",
             ),
