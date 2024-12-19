@@ -541,6 +541,7 @@ def parse_arguments(parser, json_config=None):
 
 
 def main():
+    print('main start')
     parser = get_parser()
     logger = logging.getLogger()
     job_config = get_json_config()
